@@ -1,5 +1,11 @@
 import { SUPPORTED_FIELDS } from './constants';
-import type { ComparisonOperator, ExprNode, StockRow, Token, ValidationResult } from './types';
+import type {
+  ComparisonOperator,
+  ExprNode,
+  StockRow,
+  Token,
+  ValidationResult,
+} from './types';
 
 const OPERATOR_SET = new Set(['<', '>', '<=', '>=', '=', '!=']);
 
@@ -30,9 +36,11 @@ export function tokenize(input: string): Token[] {
     if (['<', '>', '!', '='].includes(char)) {
       const twoChar = input.slice(i, i + 2);
       const value = OPERATOR_SET.has(twoChar) ? twoChar : char;
+
       if (!OPERATOR_SET.has(value)) {
         throw new Error(`Invalid operator at position ${i}`);
       }
+
       tokens.push({ type: 'OPERATOR', value, position: i });
       i += value.length;
       continue;
@@ -41,13 +49,16 @@ export function tokenize(input: string): Token[] {
     if (/[-0-9.]/.test(char)) {
       let value = char;
       let j = i + 1;
+
       while (j < input.length && /[0-9.]/.test(input[j])) {
         value += input[j];
         j += 1;
       }
+
       if (Number.isNaN(Number(value))) {
         throw new Error(`Invalid number '${value}' at position ${i}`);
       }
+
       tokens.push({ type: 'NUMBER', value, position: i });
       i = j;
       continue;
@@ -56,12 +67,22 @@ export function tokenize(input: string): Token[] {
     if (/[A-Za-z_]/.test(char)) {
       let value = char;
       let j = i + 1;
+
       while (j < input.length && /[A-Za-z0-9_]/.test(input[j])) {
         value += input[j];
         j += 1;
       }
+
       const upper = value.toUpperCase();
-      const type = upper === 'AND' ? 'AND' : upper === 'OR' ? 'OR' : upper === 'NOT' ? 'NOT' : 'IDENTIFIER';
+      const type =
+        upper === 'AND'
+          ? 'AND'
+          : upper === 'OR'
+          ? 'OR'
+          : upper === 'NOT'
+          ? 'NOT'
+          : 'IDENTIFIER';
+
       tokens.push({ type, value: upper, position: i });
       i = j;
       continue;
@@ -80,29 +101,37 @@ class Parser {
 
   parse(): ExprNode {
     const expr = this.parseOr();
+
     if (this.peek()) {
-      throw new Error(`Unexpected token '${this.peek()?.value}' at position ${this.peek()?.position}`);
+      throw new Error(
+        `Unexpected token '${this.peek()?.value}' at position ${this.peek()?.position}`
+      );
     }
+
     return expr;
   }
 
   private parseOr(): ExprNode {
     let left = this.parseAnd();
+
     while (this.peek()?.type === 'OR') {
       this.consume('OR');
       const right = this.parseAnd();
       left = { type: 'LOGICAL', operator: 'OR', left, right };
     }
+
     return left;
   }
 
   private parseAnd(): ExprNode {
     let left = this.parseUnary();
+
     while (this.peek()?.type === 'AND') {
       this.consume('AND');
       const right = this.parseUnary();
       left = { type: 'LOGICAL', operator: 'AND', left, right };
     }
+
     return left;
   }
 
@@ -111,6 +140,7 @@ class Parser {
       this.consume('NOT');
       return { type: 'NOT', operand: this.parseUnary() };
     }
+
     return this.parsePrimary();
   }
 
@@ -121,13 +151,17 @@ class Parser {
       this.consume('RPAREN');
       return expr;
     }
+
     return this.parseComparison();
   }
 
   private parseComparison(): ExprNode {
     const fieldToken = this.consume('IDENTIFIER');
+
     if (!(fieldToken.value in SUPPORTED_FIELDS)) {
-      throw new Error(`Unsupported field '${fieldToken.value}' at position ${fieldToken.position}`);
+      throw new Error(
+        `Unsupported field '${fieldToken.value}' at position ${fieldToken.position}`
+      );
     }
 
     const operatorToken = this.consume('OPERATOR');
@@ -147,9 +181,13 @@ class Parser {
 
   private consume(type: Token['type']): Token {
     const token = this.tokens[this.index];
+
     if (!token || token.type !== type) {
-      throw new Error(`Expected ${type} at position ${token?.position ?? 'end of input'}`);
+      throw new Error(
+        `Expected ${type} at position ${token?.position ?? 'end of input'}`
+      );
     }
+
     this.index += 1;
     return token;
   }
@@ -160,6 +198,7 @@ export function validateFormula(input: string): ValidationResult {
     const tokens = tokenize(input);
     const parser = new Parser(tokens);
     const ast = parser.parse();
+
     return {
       ok: true,
       ast,
@@ -173,23 +212,57 @@ export function validateFormula(input: string): ValidationResult {
   }
 }
 
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
 export function evaluateAst(ast: ExprNode, row: StockRow): boolean {
   if (ast.type === 'COMPARISON') {
     const fieldKey = SUPPORTED_FIELDS[ast.field];
     const leftValue = row[fieldKey];
+
     switch (ast.operator) {
-      case '<':
-        return leftValue < ast.value;
-      case '>':
-        return leftValue > ast.value;
-      case '<=':
-        return leftValue <= ast.value;
-      case '>=':
-        return leftValue >= ast.value;
+      case '<': {
+        const leftNum = toNumber(leftValue);
+        const rightNum = toNumber(ast.value);
+        return leftNum !== null && rightNum !== null && leftNum < rightNum;
+      }
+
+      case '>': {
+        const leftNum = toNumber(leftValue);
+        const rightNum = toNumber(ast.value);
+        return leftNum !== null && rightNum !== null && leftNum > rightNum;
+      }
+
+      case '<=': {
+        const leftNum = toNumber(leftValue);
+        const rightNum = toNumber(ast.value);
+        return leftNum !== null && rightNum !== null && leftNum <= rightNum;
+      }
+
+      case '>=': {
+        const leftNum = toNumber(leftValue);
+        const rightNum = toNumber(ast.value);
+        return leftNum !== null && rightNum !== null && leftNum >= rightNum;
+      }
+
       case '=':
-        return leftValue === ast.value;
+        return String(leftValue) === String(ast.value);
+
       case '!=':
-        return leftValue !== ast.value;
+        return String(leftValue) !== String(ast.value);
+
+      default:
+        return false;
     }
   }
 
